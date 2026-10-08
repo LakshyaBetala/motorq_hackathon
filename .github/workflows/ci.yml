@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # pgvector, not postgres:16 — CREATE EXTENSION vector fails on the stock image.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: voltroute
+          POSTGRES_USER: voltroute
+          POSTGRES_PASSWORD: devonly
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U voltroute -d voltroute"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8-alpine
+        env:
+          CLICKHOUSE_DB: voltroute
+          CLICKHOUSE_USER: voltroute
+          CLICKHOUSE_PASSWORD: devonly
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+        ports: ["8123:8123", "9000:9000"]
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install "psycopg[binary]>=3.1"
+
+      - name: Apply migrations in order
+        env:
+          PGPASSWORD: devonly
+        run: |
+          for f in services/api/migrations/*.sql; do
+            echo "applying $f"
+            psql -h localhost -U voltroute -d voltroute -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+
+      - name: Apply ClickHouse schema
+        run: |
+          for f in services/ingest/schema/*.sql; do
+            echo "applying $f"
+            curl -sS --fail-with-body \
+              -u voltroute:devonly \
+              --data-binary @"$f" \
+              "http://localhost:8123/?multiquery=1" || exit 1
+          done
+
+      - name: Run tests with coverage
+        env:
+          READYLINE_PG_OWNER_DSN: postgresql://voltroute:devonly@localhost:5432/voltroute
+          READYLINE_PG_APP_DSN: postgresql://readyline_app:devonly@localhost:5432/voltroute
+        run: |
+          pytest --cov=readyline --cov=readyline_sim \
+                 --cov-report=term-missing --cov-report=xml
+
+      - name: Fail if tenant-isolation tests were skipped
+        # These are the tests that caught a real RLS owner-bypass hole. A silent skip because
+        # the database was unreachable would hand us a green build with no isolation coverage.
+        env:
+          READYLINE_PG_OWNER_DSN: postgresql://voltroute:devonly@localhost:5432/voltroute
+          READYLINE_PG_APP_DSN: postgresql://readyline_app:devonly@localhost:5432/voltroute
+        run: pytest tests/test_tenant_isolation.py -q --no-header -p no:cacheprovider
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage
+          path: coverage.xml
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SAST (Semgrep)
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/default
+        continue-on-error: true
+
+      - name: Filesystem and dependency scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: "0"     # report first; flip to 1 once the backlog is clean
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check services tests

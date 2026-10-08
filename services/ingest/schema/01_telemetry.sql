@@ -27,7 +27,14 @@ CREATE TABLE IF NOT EXISTS voltroute.telemetry
 ENGINE = MergeTree
 PARTITION BY toYYYYMM(ts)            -- retention becomes a partition DROP, not a row delete
 ORDER BY (fleet_id, vin, ts)
-TTL toDateTime(ts) + INTERVAL 7 DAY TO VOLUME 'default'   -- hot tier; warm/cold handled by rollups + S3
+-- Hot tier is 7 days of full-resolution raw. After that the 1-minute rollup below carries the
+-- warm tier (90 d) and Parquet on S3/MinIO carries cold (7 y), so the raw rows are redundant and
+-- are dropped. Replay after a format change is served from the Mongo envelope store, not here.
+--
+-- NB: an earlier version of this said `TO VOLUME 'default'`, which reads like tiering but moves
+-- data to the volume it is already on -- a no-op that quietly kept 3 PB/yr of raw telemetry.
+-- With a real multi-disk storage policy configured, swap DELETE for `TO VOLUME 'cold'`.
+TTL toDateTime(ts) + INTERVAL 7 DAY DELETE
 SETTINGS index_granularity = 8192;
 
 -- Skip index: most alert queries filter on a DTC being present.
