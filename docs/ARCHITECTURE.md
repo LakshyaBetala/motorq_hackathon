@@ -9,21 +9,52 @@ a001 contributes dollar attribution and a falsifiable ranking metric.
 
 ---
 
-## 1. Problem space (locked)
+## 1. Problem space (locked — revised 2026-10-09)
 
-**Shift readiness: tell the dispatcher at 06:10 which vehicles will not finish today's shift, rank
-them by attributed dollars, and act on each before the drivers arrive.**
+**The nightly depot commitment: by 16:00, decide which vehicle charges on which charger, starting
+when, to what SoC — so every route tomorrow completes, under the depot's electrical cap, at
+minimum cost.**
 
-> Priya Raman, Fleet Operations Manager, needs a way to **know which of her 250 vehicles are a risk
-> to today's plan and what to do about each**, because today she finds out when a driver calls from
-> the yard at 06:52 — her existing portal has 9 dashboards and sends 40+ threshold emails a day, so
-> she has muted it. The information was *present and unusable.*
+> A depot charging operations manager running 400–1,200 mixed vehicles across 3–9 depots needs a
+> way to **commit a nightly plan that guarantees tomorrow's routes**, because today drivers plug in
+> at shift end (17:00–21:00, the on-peak window) and every charger draws full power at once — so
+> energy is bought at the most expensive hour, the site demand peak sets the monthly demand charge,
+> packs sit at 100% SoC for nine hours calendar-ageing, and 2–4 vehicles a week still get swapped
+> because nobody knew their SoC would not cover tomorrow's route.
 
-Primary user: fleet operations manager (dispatcher). Secondary: depot supervisors, finance, drivers, sustainability, platform engineers.
+Primary user: depot charging operations manager. Secondary: dispatcher (morning exceptions),
+finance, sustainability, OEM platform team.
 
-**The pain we are actually solving is alarm fatigue, not detection.** >85% of ICU alarms are
-non-actionable and nurses silence the monitors; fleet telematics has the identical failure mode.
-So the design target is *actionable alerts per shift*, not recall.
+### Why this replaced "shift readiness" (the previous framing)
+
+The earlier framing scored itself honestly at 3/10 and had three structural faults, not merely
+missing code:
+
+1. **It was predictive maintenance renamed.** We rejected PM for synthetic-data circularity, then
+   built a system predicting which vehicles fail. The rename does not survive a sharp question.
+2. **The algorithms were decoration.** A1 (reachable charger) and A2 (charging DP) survived the
+   merge but the product never used them.
+3. **It traded ambition for honesty and scored neither.** Rules-as-decision-path is clean, but it
+   zeroes the two rows the brief explicitly grades: "ML and vector layer" and "Agentic AI".
+
+The depot commitment fixes all three simultaneously:
+
+- **The depot power cap makes this a resource-constrained scheduling problem** over a shared,
+  contended supply — not N independent single-vehicle DPs. That is genuine algorithmic depth
+  rather than a textbook exercise.
+- **A1 and A2 become the product.** Reachability and the tariff DP are what the plan is made of.
+- **VEWS survives and becomes coherent**: mechanical readiness and energy readiness combine into
+  one verdict, "will this vehicle complete tomorrow's assigned route".
+- **It is a commitment the system executes**, not a warning it emits — which gives the agentic
+  layer real work, real consequences, and therefore real guardrails worth building.
+- It is an **optimisation under constraint**, which no amount of simulator circularity can fake.
+
+### What carries over
+
+The alarm-fatigue discipline is kept, repositioned: the Morning Board is no longer a list of
+predictions, it is **the exceptions to a plan we committed last night**. That is a stronger object
+— every card has a prior commitment to compare against. >85% of ICU alarms are non-actionable and
+nurses silence the monitors; the hard cap of 12 stays.
 
 ### Why this space wins
 
@@ -54,21 +85,46 @@ forces tenant isolation, which is graded.
 
 ## 2. What we claim, and what we actually prove
 
-The absolute dollar figure is a modelled extrapolation and is **labelled as one everywhere it
-appears**. What the acceptance tests assert is narrower and falsifiable:
+### The randomised holdout arm (the core credibility mechanism)
+
+Two of the four competing designs independently converged on this, which is why it is now central
+rather than an afterthought.
+
+**10% of EVs are randomised into an unmanaged control arm at onboarding**, stratified by depot and
+by daily km. Control vehicles are measured identically and generate recommendations internally —
+but the recommendations are never delivered, and the depot plan excludes them. They charge the way
+the fleet charges today: plug in on arrival, draw full power.
+
+Reported saving is a **difference-in-differences** on `$ per 100 route-km`, treatment versus
+control, against the pre-period — with a two-sided t-test and a 95% confidence interval, served
+from `GET /api/v1/experiments/charging-arbitrage`.
+
+This is the difference between "our model says we saved $927/EV/year" and a measured number with
+an error bar. It is also the one thing in the whole design that cannot be faked by a simulator
+that we wrote, because **both arms run against the same simulator**. Any bias in the generator
+applies equally to both and cancels in the difference.
 
 | Claim | Target | Asserted by |
 | --- | --- | --- |
-| Alert precision | **precision@12 ≥ 0.50** | Simulator ground-truth fault labels |
-| Alert recall | **recall@72h ≥ 0.30** on telemetry-visible mechanisms | Same |
-| Attention budget | **≤ 12 alerts/dispatcher/shift** | Hard cap, enforced in code |
-| Cost ranking correctness | **Spearman ρ ≥ 0.85** vs simulator's ground-truth cost ledger | Back-test |
-| Dollar attribution accuracy | **within ±15%** of ledger truth per vehicle-month | Back-test |
+| **Energy arbitrage saving** | **measured, with 95% CI** | Randomised holdout, DiD, t-test |
+| **Depot peak reduction** | site peak cut ≥ 25% | Measured against the cap, both arms |
+| Plan feasibility | **100%** of committed routes complete | Simulator replay; a missed route is a hard failure |
+| Schedule optimality | DP cost within **1%** of brute force on small instances | Property test vs exhaustive search |
+| Energy conservation | ledger balances to **< 0.1%** | Conservation identity: kWh bought = kWh stored + losses |
+| Attention budget | **≤ 12 exceptions/dispatcher/shift** | Hard cap, enforced in code |
+| Alert precision | precision@12 ≥ 0.50 | Simulator ground-truth labels |
 
-Reporting recall without the alert budget is how you build the thing Priya muted. We report all three together.
+The last two are retained from the previous framing but demoted: they are secondary to the
+measured arbitrage number, because they are scored against labels we invented.
 
-Modelled impact: **~$475/vehicle/yr** central case (pessimistic $221, optimistic $672) against
-infrastructure cost of **~$0.96/vehicle/yr**. The ~230× headroom is the business case, not the absolute number.
+**Pack-life extension and avoided-range-failure savings are modelled, not measured, and are
+labelled as such in the UI.** We commit only to the arbitrage row.
+
+### Why the conservation identity matters
+
+`kWh bought = kWh stored + charging losses` is an invariant that must hold on every session. It is
+a test that *proves correctness* rather than merely executing lines — if the energy ledger drifts,
+every dollar figure downstream is wrong and the test says so immediately.
 
 ---
 
@@ -127,8 +183,9 @@ found 0.63, fired on 18% of patients, missed 67% of sepsis).
 
 | # | Problem | Algorithm | Complexity |
 | --- | --- | --- | --- |
+| **A0** | **Depot commitment: N vehicles, M chargers, one site power cap, hard departure deadlines** | **Lagrangian relaxation with an exactly-solved subproblem.** Dualise the shared power cap into a time-varying price λ(t). Each vehicle's subproblem is then a continuous knapsack — buy E kWh, rate-capped per slot, none after the deadline — which **price-sorted greedy solves exactly** by an exchange argument. A subgradient step raises λ(t) where the cap is violated and lowers it where slack remains; residual violation is repaired by proportional shedding plus re-placement into slots with headroom. | O(K · N · T log T), K ≈ 24 |
 | A1 | Nearest *reachable* charger given SoC | **A\*** on road graph, heuristic = haversine/max_speed, edges pruned by energy feasibility | O(E log V) |
-| A2 | Cheapest charging schedule under ToU tariffs | **DP** over (slot × SoC bucket) with charge-rate + departure-deadline constraints | O(T·S·R) |
+| A2 | Cheapest single-vehicle schedule under ToU tariffs | **DP** over (slot × SoC bucket) with charge-rate + departure-deadline constraints | O(T·S·R) |
 | A3 | Noisy GPS → stops and trips (this *is* how idle time is computed) | **DP / PELT segmentation** with dwell-radius cost | O(n·w) windowed |
 | A4 | VIN validation | Regex `^[A-HJ-NPR-Z0-9]{17}$` + ISO 3779 check digit | O(1) |
 | A5 | DTC parsing | Regex `^[PBCU][0-3][0-9A-F]{3}$` → severity map | O(1) |
@@ -138,6 +195,43 @@ found 0.63, fired on 18% of patients, missed 67% of sepsis).
 | A9 | VEWS banding + EWMA per signal | Additive band table over exponentially-weighted means | O(1)/event |
 
 Each gets pseudocode, a proven bound, and a **measured** runtime at stated input size.
+
+### Why A0 is the centrepiece
+
+Scheduling N vehicles onto M chargers under a site power cap with hard deadlines is
+**NP-hard** (it contains bin-packing). The naive approaches both fail in ways we can demonstrate:
+
+- **Greedy by deadline** fills the cheap window with whoever leaves first, then discovers the last
+  vehicles must buy their entire requirement at peak — or cannot finish at all.
+- **N independent DPs** (what A2 alone gives you) is *optimal per vehicle and infeasible in
+  aggregate*: every vehicle independently picks the same cheapest hour, so the depot draws N ×
+  max_kW at 02:00 and trips the main breaker.
+
+Lagrangian relaxation is the right tool because the coupling is a *single shared resource*. The
+dual price λ(t) is literally a congestion charge on depot power: vehicles that can wait are priced
+out of the contended hour and move themselves. It also yields a **lower bound** on the optimum at
+every iteration, so we can report the duality gap and state how close to optimal the committed
+plan provably is — rather than asserting it is good.
+
+That bound is what makes this defensible under questioning, and it is why a brute-force
+cross-check on small instances is in the test matrix (§2).
+
+**Solving the subproblem exactly is not an optimisation detail — it is what makes the bound real.**
+The first implementation used the A2 bucket DP for each vehicle. The DP discretises SoC into 51
+buckets, so each per-vehicle "optimum" is the best point *on that grid* and therefore strictly
+costlier than the continuous optimum. Summing those inflated costs produced a λ-bound that the
+continuous repair phase could legitimately undercut — a "lower bound" above the achievable cost,
+which is no bound at all. A test comparing committed cost against the bound caught it. Greedy
+removes the discretisation error at its source and is asymptotically faster.
+
+Two further properties the implementation is required to preserve, each covered by a test:
+
+- **The duality gap is `None` when the plan sheds load.** The bound assumes every vehicle reaches
+  target; if we shed, the committed plan solved a strictly easier problem. Reporting a small gap
+  there would read as near-optimal at precisely the moment we failed to serve the depot.
+- **The unmanaged baseline must not be crippled.** The measured saving is a difference against
+  it, so making the control arm artificially bad is the single most tempting way to cheat in this
+  system. A test asserts the baseline still reaches target when time and power allow.
 
 ---
 
