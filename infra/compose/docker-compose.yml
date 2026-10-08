@@ -1,0 +1,133 @@
+name: voltroute
+
+# Local profile. Boots the whole platform on a laptop.
+# The scale profile uses the same images and the same env vars with different values.
+
+x-health: &health
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 20s
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda start
+      - --overprovisioned
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --node-id 0
+      - --check=false
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports: ["9092:9092", "9644:9644"]
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      <<: *health
+
+  # Creates topics with the partition counts the design depends on, then exits.
+  topics:
+    image: redpandadata/redpanda:v24.2.7
+    depends_on:
+      redpanda: {condition: service_healthy}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        rpk -X brokers=redpanda:29092 topic create telemetry.raw -p 64 -r 1 -c retention.ms=604800000
+        rpk -X brokers=redpanda:29092 topic create telemetry.dlq  -p 4  -r 1
+        rpk -X brokers=redpanda:29092 topic create alerts         -p 8  -r 1
+        rpk -X brokers=redpanda:29092 topic list
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_DB: voltroute
+      CLICKHOUSE_USER: voltroute
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-devonly}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports: ["8123:8123", "9000:9000"]
+    volumes:
+      - ./../../services/ingest/schema:/docker-entrypoint-initdb.d:ro
+      - ch_data:/var/lib/clickhouse
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8123/ping"]
+      <<: *health
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: voltroute
+      POSTGRES_USER: voltroute
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devonly}
+    ports: ["5432:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voltroute -d voltroute"]
+      <<: *health
+
+  # Landing zone for un-normalised OEM envelopes. When an OEM renames a field via OTA we fix
+  # the mapping and replay from here, so no data is lost to a format change we hadn't seen yet.
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: voltroute
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-devonly}
+      MONGO_INITDB_DATABASE: envelopes
+    ports: ["27017:27017"]
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      <<: *health
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      <<: *health
+
+  emqx:
+    image: emqx/emqx:5.8.0
+    environment:
+      EMQX_ALLOW_ANONYMOUS: "true"   # local profile only; scale profile requires mTLS client certs
+    ports: ["1883:1883", "18083:18083"]
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+      <<: *health
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD:-devonly}
+      KC_HEALTH_ENABLED: "true"
+    ports: ["8080:8080"]
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import:ro
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-devonly}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    ports: ["3001:3000"]
+    depends_on: [prometheus]
+
+volumes:
+  ch_data:
+  pg_data:
+  mongo_data:
