@@ -78,50 +78,113 @@ def test_openapi_is_served(client):
 # --------------------------------------------------------------------- tenant isolation
 
 
-def test_each_tenant_sees_only_its_own_vehicles(client):
-    """The pooled-connection failure mode: if app.tenant_id leaks between requests, this flips."""
-    t1 = client.get("/api/v1/vehicles", headers=_t(1)).json()["items"]
-    t2 = client.get("/api/v1/vehicles", headers=_t(2)).json()["items"]
+def _owner_vins_for(tenant: int, limit: int = 5) -> list[str]:
+    """Ground truth straight from the owner connection, bypassing RLS."""
+    with psycopg.connect(DSN_OWNER) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT vin FROM vehicle WHERE tenant_id = %s ORDER BY vin LIMIT %s",
+            (tenant, limit),
+        )
+        return [r[0].strip() for r in cur.fetchall()]
 
-    assert [v["vin"] for v in t1] == [VIN_T1]
-    assert [v["vin"] for v in t2] == [VIN_T2]
+
+def _tenant_of(vin: str) -> int | None:
+    with psycopg.connect(DSN_OWNER) as conn, conn.cursor() as cur:
+        cur.execute("SELECT tenant_id FROM vehicle WHERE vin = %s", (vin,))
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def test_every_returned_vehicle_belongs_to_the_caller(client):
+    """Asserts the property, not a fixture.
+
+    An earlier version compared against two hard-coded VINs, which broke the moment the database
+    held a real 100,000-vehicle seed -- and would have passed just as happily against a seed
+    where isolation was broken, as long as those two rows happened to come back.
+    """
+    for tenant in (1, 2):
+        items = client.get("/api/v1/vehicles?limit=25", headers=_t(tenant)).json()["items"]
+        assert items, f"tenant {tenant} saw no vehicles at all"
+        for v in items:
+            assert _tenant_of(v["vin"]) == tenant, f"{v['vin']} leaked into tenant {tenant}"
+
+
+def test_tenants_see_disjoint_vehicle_sets(client):
+    a = {v["vin"] for v in client.get("/api/v1/vehicles?limit=50", headers=_t(1)).json()["items"]}
+    b = {v["vin"] for v in client.get("/api/v1/vehicles?limit=50", headers=_t(2)).json()["items"]}
+    assert a and b
+    assert a.isdisjoint(b)
 
 
 def test_scope_does_not_leak_across_sequential_requests(client):
-    """Alternate tenants on the same pool repeatedly; each must stay correctly scoped."""
-    for _ in range(6):
-        assert [v["vin"] for v in client.get("/api/v1/vehicles", headers=_t(1)).json()["items"]] == [VIN_T1]
-        assert [v["vin"] for v in client.get("/api/v1/vehicles", headers=_t(2)).json()["items"]] == [VIN_T2]
+    """The pooled-connection failure mode: app.tenant_id is per-connection, so a connection
+    handed on without a reset would carry the previous caller's scope into the next request."""
+    for _ in range(5):
+        for tenant in (1, 2):
+            items = client.get("/api/v1/vehicles?limit=5", headers=_t(tenant)).json()["items"]
+            assert items
+            assert all(_tenant_of(v["vin"]) == tenant for v in items)
 
 
 def test_cannot_read_another_tenants_vehicle_by_vin(client):
     """A direct lookup must not become a side channel around the list endpoint."""
-    r = client.get(f"/api/v1/vehicles/{VIN_T2}/telemetry", headers=_t(1))
-    assert r.status_code == 404
+    other = _owner_vins_for(2, limit=1)
+    assert other, "tenant 2 has no vehicles to probe with"
+    assert client.get(f"/api/v1/vehicles/{other[0]}/telemetry", headers=_t(1)).status_code == 404
 
 
 def test_own_vehicle_telemetry_is_reachable(client):
-    r = client.get(f"/api/v1/vehicles/{VIN_T1}/telemetry", headers=_t(1))
+    mine = _owner_vins_for(1, limit=1)
+    assert mine, "tenant 1 has no vehicles"
+    r = client.get(f"/api/v1/vehicles/{mine[0]}/telemetry", headers=_t(1))
     assert r.status_code == 200
-    assert r.json()["vin"] == VIN_T1
+    assert r.json()["vin"] == mine[0]
 
 
 # --------------------------------------------------------------------- pagination
 
 
-def test_pagination_is_keyset_and_terminates(client):
-    """No OFFSET: page cost must not grow with depth, and the cursor must end cleanly."""
+def test_pagination_walks_without_duplicates_or_gaps(client):
+    """No OFFSET: page cost must not grow with depth.
+
+    With a real 16,000-vehicle tenant the cursor obviously does not exhaust in a few pages, so
+    this asserts what actually matters: pages are disjoint, strictly increasing, and contiguous
+    against the ordering the database reports.
+    """
     seen: list[str] = []
     cursor = None
-    for _ in range(10):
-        url = "/api/v1/vehicles?limit=1" + (f"&cursor={cursor}" if cursor else "")
+    for _ in range(8):
+        url = "/api/v1/vehicles?limit=5" + (f"&cursor={cursor}" if cursor else "")
         page = client.get(url, headers=_t(1)).json()
+        assert page["items"], "page came back empty before the cursor ended"
         seen.extend(v["vin"] for v in page["items"])
         cursor = page["next_cursor"]
         if cursor is None:
             break
-    assert cursor is None, "cursor never terminated"
+
     assert len(seen) == len(set(seen)), "keyset pagination returned duplicates"
+    assert seen == sorted(seen), "keyset pagination went backwards"
+    assert seen == _owner_vins_for(1, limit=len(seen)), "pages skipped rows"
+
+
+def test_pagination_terminates_on_a_small_tenant(client):
+    """Cursor termination, checked on a tenant small enough to exhaust."""
+    with psycopg.connect(DSN_OWNER) as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT tenant_id FROM vehicle GROUP BY tenant_id ORDER BY count(*) ASC LIMIT 1"
+        )
+        smallest = cur.fetchone()[0]
+
+    cursor = None
+    pages = 0
+    while pages < 200:
+        url = "/api/v1/vehicles?limit=200" + (f"&cursor={cursor}" if cursor else "")
+        page = client.get(url, headers=_t(smallest)).json()
+        pages += 1
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert cursor is None, "cursor never terminated"
 
 
 def test_page_size_is_capped(client):

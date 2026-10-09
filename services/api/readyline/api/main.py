@@ -40,6 +40,18 @@ app = FastAPI(
 _STARTED = time.time()
 
 
+def _as_vin(value: object) -> str:
+    """Normalise a VIN coming back from either store.
+
+    ClickHouse hands FixedString(17) back as bytes and pads to width; PostgreSQL CHAR(17) pads
+    with spaces. Both need the same treatment before they can be used as a dictionary key, and
+    mixing the two types silently produces lookups that never match.
+    """
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("ascii", "replace").strip()
+    return str(value).strip()
+
+
 def _clickhouse():
     return clickhouse_connect.get_client(
         host=SETTINGS.ch_host, port=SETTINGS.ch_port, username=SETTINGS.ch_user,
@@ -363,8 +375,11 @@ def charging_arbitrage(
 
     observations: list[Observation] = []
     assignments: dict[str, tuple[int, str]] = {}
-    for vin, period, cost, soc_delta in rows:
-        vin = vin.strip()
+    for raw_vin, period, cost, soc_delta in rows:
+        # ClickHouse returns FixedString(17) as BYTES, not str. Without decoding, every lookup
+        # against the Postgres-derived map missed, every observation was dropped, and the
+        # endpoint reported an empty control arm -- correct refusal, wrong cause.
+        vin = _as_vin(raw_vin)
         depot = depot_of.get(vin)
         if depot is None:
             continue  # not this tenant's vehicle; RLS already excluded it
