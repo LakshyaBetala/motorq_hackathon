@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-web
+  labels: {{- include "readyline.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: readyline, component: web}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: readyline, component: web}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}-web:{{ .Values.image.tag }}"
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports: [{containerPort: {{ .Values.web.port }}}]
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: nginx-cache, mountPath: /var/cache/nginx}
+            - {name: nginx-run, mountPath: /var/run}
+      volumes:
+        - {name: tmp, emptyDir: {}}
+        - {name: nginx-cache, emptyDir: {}}
+        - {name: nginx-run, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-web
+spec:
+  selector: {app.kubernetes.io/name: readyline, component: web}
+  ports: [{port: 80, targetPort: {{ .Values.web.port }}}]

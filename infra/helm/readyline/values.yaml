@@ -1,0 +1,59 @@
+# Cloud-agnostic by construction: no managed service appears on the critical path. The same
+# chart runs on EKS, GKE, AKS or k3s on a laptop. Swapping cloud means changing endpoints in
+# `externalServices`, never changing code -- which is the brief's "no code changes" requirement.
+
+image:
+  repository: ghcr.io/lakshyabetala/readyline
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+profile: scale   # local | scale. Only env values differ; there is no code branch on this.
+
+api:
+  replicas: 3
+  port: 8000
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits:   {cpu: "1",  memory: 1Gi}
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+
+ingest:
+  # One consumer per ~6,000 ev/s measured (docs/BENCHMARKS.md). 17 covers the 100k target.
+  replicas: 17
+  resources:
+    requests: {cpu: 500m, memory: 512Mi}
+    limits:   {cpu: "2",  memory: 1Gi}
+  batchRows: 20000
+  batchSeconds: 2
+
+web:
+  replicas: 2
+  port: 80
+
+# Endpoints, not embedded databases. The chart deliberately does not ship stateful sets for
+# Postgres or ClickHouse: running those under Helm in a hackathon is a reliability trap, and
+# every cloud already has a sane way to run them.
+externalServices:
+  postgres:   {host: postgres,   port: 5432, database: voltroute}
+  clickhouse: {host: clickhouse, port: 8123, database: voltroute}
+  redpanda:   {brokers: "redpanda:9092", partitions: 64}
+  redis:      {host: redis, port: 6379}
+  mongo:      {host: mongo, port: 27017}
+
+# Never commit real values. These name the keys in a Secret created out of band
+# (sealed-secrets, External Secrets Operator, or `kubectl create secret`).
+secretName: readyline-secrets
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities: {drop: ["ALL"]}

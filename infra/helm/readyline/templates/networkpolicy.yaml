@@ -1,0 +1,18 @@
+# Default-deny egress for ingest. A compromised consumer that can reach the open internet is
+# how telemetry leaves the building; it only needs the broker and the two databases.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-ingest-egress
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: readyline, component: ingest}
+  policyTypes: [Egress]
+  egress:
+    - to: [{podSelector: {}}]
+      ports:
+        - {protocol: TCP, port: 9092}
+        - {protocol: TCP, port: {{ .Values.externalServices.clickhouse.port }}}
+        - {protocol: TCP, port: {{ .Values.externalServices.postgres.port }}}
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}}]
+      ports: [{protocol: UDP, port: 53}]

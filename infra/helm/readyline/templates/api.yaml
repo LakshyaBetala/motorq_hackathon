@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "readyline.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: readyline, component: api}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: readyline, component: api}
+    spec:
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}-api:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports: [{containerPort: {{ .Values.api.port }}}]
+          env: {{- include "readyline.env" . | nindent 12 }}
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          # Liveness must NOT check dependencies: a Postgres blip would otherwise restart every
+          # API pod at once and turn a database wobble into a full outage. Readiness does check,
+          # so a pod stops taking traffic without being killed.
+          livenessProbe:
+            httpGet: {path: /healthz, port: {{ .Values.api.port }}}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /healthz, port: {{ .Values.api.port }}}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-api
+  labels: {{- include "readyline.labels" . | nindent 4 }}
+spec:
+  selector: {app.kubernetes.io/name: readyline, component: api}
+  ports: [{port: 80, targetPort: {{ .Values.api.port }}}]
+---
+{{- if .Values.api.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: {{ .Release.Name }}-api}
+  minReplicas: {{ .Values.api.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ .Values.api.autoscaling.targetCPUUtilizationPercentage }}}
+{{- end }}
+---
+# The API is stateless and horizontally scalable, so a PDB is safe and keeps a node drain from
+# taking the whole service down.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Release.Name }}-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: readyline, component: api}

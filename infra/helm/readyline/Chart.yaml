@@ -1,0 +1,6 @@
+apiVersion: v2
+name: readyline
+description: Nightly depot charging commitment for mixed ICE/EV fleets
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
