@@ -7,3 +7,8 @@ __pycache__/
 htmlcov/
 .coverage
 web/dist/
+
+# hackathon source documents - kept locally, never pushed
+Motorq_Hackathon_Problem_Statement.pdf
+Motorq_Hackathon_Solution_Document_Template.docx
+*.zip
