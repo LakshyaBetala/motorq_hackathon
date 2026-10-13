@@ -1,11 +1,11 @@
 # Connected Vehicle Intelligence Hackathon — Solution Document
 
-**Team Name:** _[fill in]_
-**Team Members & Roles:** _[Name – role – email, for each member]_
+**Team Name:** Lakshya Betala (solo entry)
+**Team Members & Roles:** Lakshya Betala — sole contributor: problem framing, architecture, implementation, testing and documentation — lakshbeta2006@gmail.com
 **Problem Space Chosen:** EV charging and battery health — specifically the nightly depot charging commitment for mixed ICE/EV fleets
 **Repository URL:** https://github.com/LakshyaBetala/motorq_hackathon
 **Demo Video URL (≤ 5 min):** _[fill in]_
-**Date of Submission:** _[DD/MM/YYYY]_
+**Date of Submission:** 13/10/2026
 
 ---
 
@@ -656,7 +656,7 @@ three queries; instrument OpenTelemetry end to end and ship the Grafana dashboar
 | 0:30–1:00 | Solution | One-line pitch; the committed plan |
 | 1:00–3:00 | Live demo | `make up`; the UI; commit a plan; lower the cap until it binds and watch load redistribute; the measured holdout with its confidence interval; ask the copilot a question; attempt a prompt injection and watch it refuse |
 | 3:00–4:15 | Under the hood | Architecture; A0 and the duality gap; the benchmark run; the DLQ catching a bad value |
-| 4:15–5:00 | Impact & next | Measured numbers; the honest gaps; the team |
+| 4:15–5:00 | Impact & next | Measured numbers; the honest gaps; who built it |
 
 **Video Link:** _[fill in]_
 ---
