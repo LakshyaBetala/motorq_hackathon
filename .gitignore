@@ -19,3 +19,6 @@ CLAUDE.md
 docs/DEMO-SCRIPT.md
 docs/arena-designs/
 web/*.tsbuildinfo
+
+# assembled submission bundle (built by tools/build_pdf.py, not source)
+submission/

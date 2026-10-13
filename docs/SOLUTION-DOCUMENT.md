@@ -1,11 +1,15 @@
 # Connected Vehicle Intelligence Hackathon — Solution Document
 
-**Team Name:** Lakshya Betala (solo entry)
-**Team Members & Roles:** Lakshya Betala — sole contributor: problem framing, architecture, implementation, testing and documentation — lakshbeta2006@gmail.com
-**Problem Space Chosen:** EV charging and battery health — specifically the nightly depot charging commitment for mixed ICE/EV fleets
-**Repository URL:** https://github.com/LakshyaBetala/motorq_hackathon
-**Demo Video URL (≤ 5 min):** _[fill in]_
-**Date of Submission:** 13/10/2026
+| | |
+| --- | --- |
+| **Team Name** | Lakshya Betala (solo entry) |
+| **Team Members & Roles** | Lakshya Betala — sole contributor: problem framing, architecture, implementation, testing and documentation |
+| **Contact** | lakshbeta2006@gmail.com |
+| **Problem Space Chosen** | EV charging and battery health — specifically the nightly depot charging commitment for mixed ICE/EV fleets |
+| **Repository** | https://github.com/LakshyaBetala/motorq_hackathon |
+| **Submission Tag** | `v1.0-submission` |
+| **Explainer Video (≤ 10 min)** | _[fill in]_ |
+| **Date of Submission** | 13/10/2026 |
 
 ---
 
@@ -648,18 +652,24 @@ three queries; instrument OpenTelemetry end to end and ship the Grafana dashboar
 
 ---
 
-## 13. Demo Video
+## 13. Explainer Video
 
-| Time | Segment | What to show |
+Submission guidance sets the limit at **10 minutes**. The plan below runs to roughly 9:00,
+leaving headroom. The shape is deliberate: the live product comes before the architecture,
+because a reviewer who has seen it work reads the internals very differently.
+
+| Time | Segment | What is shown |
 | --- | --- | --- |
-| 0:00–0:30 | Problem | Charging on arrival at peak rates; the site cap nobody plans against |
-| 0:30–1:00 | Solution | One-line pitch; the committed plan |
-| 1:00–3:00 | Live demo | `make up`; the UI; commit a plan; lower the cap until it binds and watch load redistribute; the measured holdout with its confidence interval; ask the copilot a question; attempt a prompt injection and watch it refuse |
-| 3:00–4:15 | Under the hood | Architecture; A0 and the duality gap; the benchmark run; the DLQ catching a bad value |
-| 4:15–5:00 | Impact & next | Measured numbers; the honest gaps; who built it |
+| 0:00–0:45 | The problem | Everyone plugs in at shift end, on-peak. Chargers draw full power at once. The depot's electrical cap is shared and nobody plans against it. |
+| 0:45–1:15 | The solution in one line | Commit tonight's plan by 16:00 so every route tomorrow completes, under the cap, at minimum cost. |
+| 1:15–3:30 | Live: the commitment | Boot the stack; commit a plan for 40 vehicles; read the four KPIs; then lower the site cap until it binds and watch load redistribute instead of overloading. Explain why per-vehicle optimisation fails here. |
+| 3:30–5:00 | Live: the measured saving | The randomised holdout. Why the control arm exists, why the interval matters, and why the control arm moving by ~0 is what makes the difference attributable. |
+| 5:00–6:00 | Live: the copilot | Ask it a question; it calls two tools and quotes the measured number. Then attempt a prompt injection and watch it refuse at 0.998. Show that write tools are proposed, never executed. |
+| 6:00–7:30 | Under the hood | C4 container view; the AP/CP split; VIN partitioning and why not fleet_id; the normalisation registry and the replay path; A0's Lagrangian relaxation and its provable lower bound. |
+| 7:30–8:30 | Evidence | The benchmark run; 200 tests at 88% coverage; and the five findings that were negative — inert tenant isolation, a lower bound that was not a bound, a tautological conservation test, a single-seed null test, and an ML re-ranker that lost. |
+| 8:30–9:00 | Honest gaps and next steps | JWKS unimplemented, 100k ev/s extrapolated, no EXPLAIN ANALYZE, observability not instrumented. Then the next three steps, and who built it. |
 
 **Video Link:** _[fill in]_
----
 
 ## 14. Repository Checklist
 
