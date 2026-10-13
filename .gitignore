@@ -12,3 +12,10 @@ web/dist/
 Motorq_Hackathon_Problem_Statement.pdf
 Motorq_Hackathon_Solution_Document_Template.docx
 *.zip
+
+# not part of the submission: agent tooling, planning scratch, build artefacts
+.claude/
+CLAUDE.md
+docs/DEMO-SCRIPT.md
+docs/arena-designs/
+web/*.tsbuildinfo

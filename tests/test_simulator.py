@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import random
 
-import pytest
 
 from readyline.algorithms.identifiers import is_valid_vin
 from readyline_sim.faults import (

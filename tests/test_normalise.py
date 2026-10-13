@@ -7,7 +7,6 @@ unit-conversion surface, which is where silent corruption lives.
 
 from __future__ import annotations
 
-import math
 
 import pytest
 

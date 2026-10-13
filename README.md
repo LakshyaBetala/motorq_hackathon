@@ -111,12 +111,19 @@ make bench       # 4 producers + 4 consumers, throughput measurement
 make test        # 200 tests
 ```
 
-Requires Docker. The algorithm and simulator suites run standalone with just Python:
+Requires Docker and Python 3.12+.
+
+The algorithm, simulator, agent and statistics suites run **standalone with no infrastructure** —
+integration tests skip automatically when the stack is down, and the agent tests stub the LLM so
+no API key is needed:
 
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest                      # 200 tests
 ```
+
+The copilot is optional. Put a free key from console.groq.com in `GROQ_API_KEY` to enable it;
+everything else works without one.
 
 ## The graded core
 
@@ -163,7 +170,7 @@ bounded by physics rather than by our cleverness.
 ## Repository layout
 
 ```
-docs/            ARCHITECTURE.md (source of truth), adr/, arena-designs/ (superseded references)
+docs/            ARCHITECTURE.md (source of truth), BENCHMARKS.md, THREAT-MODEL.md, adr/
 services/
   simulator/     100k vehicles, 9 fault mechanisms, 3 OEM dialects, ground-truth ledger
   api/           FastAPI + the algorithm core + migrations
@@ -198,5 +205,5 @@ tests/
 - Built with assistance from Claude (Anthropic) for design exploration, implementation, test
   authoring and documentation. At runtime the copilot calls Groq-hosted `openai/gpt-oss-120b`
   and `meta-llama/llama-prompt-guard-2-86m` for injection screening.
-- `docs/arena-designs/` contains four competing designs generated during planning; the final
-  architecture synthesises two of them and supersedes all four.
+- Four competing architectures were generated and critiqued during planning; the final design
+  synthesises two of them. Those drafts are not part of the submission.

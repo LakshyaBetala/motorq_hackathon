@@ -300,7 +300,6 @@ def commit_depot_plan(
     )
 
     # The counterfactual, computed on the same inputs so the saving is comparable.
-    slot_hours = body.slot_minutes / 60.0
     unmanaged_total = sum(
         unmanaged_plan(d, body.tariff_per_slot, body.slot_minutes).cost for d in demands
     )

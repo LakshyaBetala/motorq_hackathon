@@ -1,0 +1,10 @@
+# Runtime. Pinned to minor so a reviewer gets what we tested against.
+fastapi>=0.128,<0.129
+uvicorn[standard]>=0.40,<0.41
+pydantic>=2.12,<3
+psycopg[binary,pool]>=3.3,<4
+clickhouse-connect>=1.10,<2
+confluent-kafka>=2.16,<3
+httpx>=0.28,<0.29
+scikit-learn>=1.8,<2        # the ML re-ranker; ships disabled but is imported by its tests
+python-jose>=3.5,<4         # OIDC claim parsing

@@ -51,7 +51,7 @@ class Candidate:
     vews_total: int
     dollars_at_risk: float
     # Ground truth from the simulator ledger. Only ever used for training and back-testing;
-    # production never sees it (CLAUDE.md: keep the ledger out of every product read path).
+    # production never sees it: a ledger read from a product path makes every metric circular.
     failed_within_72h: bool | None = None
 
     def vector(self) -> list[float]:

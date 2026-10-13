@@ -355,7 +355,7 @@ services/
   agent/                     copilot.py, tools.py
 web/src/                     App.tsx, api.ts, styles.css
 infra/                       compose/, helm/, terraform/
-docs/                        ARCHITECTURE, BENCHMARKS, THREAT-MODEL, adr/, arena-designs/
+docs/                        ARCHITECTURE, BENCHMARKS, THREAT-MODEL, SOLUTION-DOCUMENT, adr/
 tests/                       9 suites, 200 tests
 ```
 
@@ -659,8 +659,6 @@ three queries; instrument OpenTelemetry end to end and ship the Grafana dashboar
 | 4:15–5:00 | Impact & next | Measured numbers; the honest gaps; the team |
 
 **Video Link:** _[fill in]_
-Full shot list in `docs/DEMO-SCRIPT.md`.
-
 ---
 
 ## 14. Repository Checklist
@@ -708,8 +706,9 @@ versus extrapolated, and §12 for what is not finished.
 MapLibre (BSD-3), Playwright (Apache-2.0), pytest (MIT), Prometheus/Grafana (Apache-2.0/AGPL-3.0).
 
 **AI tools used.** Claude (Anthropic) was used throughout for design exploration, implementation,
-test authoring and documentation. Four competing architectures were generated during planning and
-are preserved in `docs/arena-designs/`; the final architecture synthesises two of them. At
+test authoring and documentation. Four competing architectures were generated and critiqued during
+planning; the final architecture synthesises two of them. Those drafts are not part of this
+submission. At
 runtime the product calls Groq-hosted `openai/gpt-oss-120b` (copilot) and
 `meta-llama/llama-prompt-guard-2-86m` (injection screening).
 
@@ -724,6 +723,4 @@ vehicle-owner data, no real VINs. Depot coordinates are city centroids, not cust
 - `docs/BENCHMARKS.md` — every measured number and its method
 - `docs/THREAT-MODEL.md` — STRIDE, with what is *not* covered
 - `docs/adr/` — four Architecture Decision Records
-- `docs/arena-designs/` — four competing designs from planning, superseded
-- `docs/DEMO-SCRIPT.md` — shot list for the video
 - `docs/screenshots/` — UI

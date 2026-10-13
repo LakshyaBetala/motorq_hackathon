@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 
 from readyline.algorithms.depot import (
-    DepotPlan,
     VehicleDemand,
     brute_force_depot_cost,
     plan_depot,
